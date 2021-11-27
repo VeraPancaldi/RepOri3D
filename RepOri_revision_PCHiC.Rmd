@@ -1,0 +1,465 @@
+# library(devtools)
+# devtools::install_bitbucket("eraineri/chaser", build_opts=c(), force=T)
+
+```{r}
+library(chaser)
+library(GenomicRanges)
+
+source('/media/data/home/vera/RepOriData/coloursdef.R')
+datapath='/media/data/home/vera/RepOriData'
+
+#load(paste0(datapath,'/chaser_reproducing_ori_paper.RData'))
+```
+
+```{r}
+net=read.table(paste(datapath,'mESC_wt_and_KO.txt', sep='/'), sep='\t', header=T)
+
+##Define paths:
+#netpath= "REVISION/GSE72164_Hi-C_Merged_interactions_intervals.txt" #'/home/vera/BACKUP_HomeCNIO_August2017/Vera/Blueprint_Dani/PChiC/BP/PCHiCdataBP'
+netpath= "/home/vera/dbpersonal/Dropbox_work/RepOriKarolina/DNAseCHiC_Joshi15/GSE72164_Hi-C_Merged_interactions_intervals.txt" #'/home/vera/BACKUP_HomeCNIO_August2017/Vera/Blueprint_Dani/PChiC/BP/PCHiCdataBP'
+# Interactions are in mm9 (https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM1856416)
+
+##use old pchic net
+ net[,1]=paste('chr', net[,1], sep='')
+ net[,6]=paste('chr', net[,6], sep='')
+
+ netnames=cbind(paste0(net[,1], ':', net[,2], '-', net[,3]),paste0(net[,6], ':', net[,7], '-', net[,8]), net[,12], net[,14])
+ 
+ net_forchaser=net[which(net$mESC_wt >= 5),c(1:3,6:8)]
+
+
+
+net_forchaser2KO=net[which(net$mESC_Ring1A_1B_KO >= 5),c(1:3,6:8)]
+
+
+netwt=chaser::make_chromnet(net_forchaser)
+netwt2KO=chaser::make_chromnet(net_forchaser2KO)
+
+write.table(netwt$edgesdf, paste0(datapath,'/PCHiC_edgesdf.txt'), quote=F, sep='\t')
+write.table(netwt2KO$edgesdf,paste0(datapath, '/PCHiC2KO_edgesdf.txt'), quote=F, sep='\t')
+
+
+netall=chaser::make_chromnet(net[,c(1:3,6:8)])
+##baitsall <- unique(chaser::export(netwt, "edges")$node_from)  #old version had some promoters as other ends
+baitsall<- unique(chaser::export(netall, "edges")$node_from)
+##calculate number of nodes
+
+```
+#### Load oris ####
+```{r}
+#wt_oris <- read.table('/home/vera/dbpersonal/Dropbox_work/RepOriData/backcor_downs_means_mm9/mean_efficiency_wt_mm9.bed', header = T, stringsAsFactors = F)
+
+files=list.files(paste0(datapath,'/backcor_downs_means_mm9/'))
+
+
+randwtoris=list.files(paste0(datapath,'/May2019_TSSRandom/random_efficiency_mm9/wt_all'))
+randwtorisnorm=randwtoris[grep('normal', randwtoris)]
+randwtorisTSS=randwtoris[grep('TSS', randwtoris)]
+
+
+filesbed=files[grep('.bed', files)]
+
+netwt=chaser::make_chromnet(net_forchaser)
+
+#[which(net_forchaser$baitChr!='chr18'),])
+
+
+
+orisl=list()
+for (f in filesbed){
+  
+  oris <- read.table(paste0(datapath,'/backcor_downs_means_mm9/',f, sep=''), header = T, stringsAsFactors = F)
+    oris=oris[!duplicated(paste(oris[,1], oris[,2], oris[,3])),grep('ori_type',colnames(oris), invert = T)]
+    print(ncol(oris))
+  orisl[[f]]=oris
+  
+  netwt <- load_features(netwt, oris[,-c(4:6)], type='features_table',missingv=0,featname=gsub('mean_efficiency','',f))
+   
+}
+
+##check duplicated oris
+# ##calculate all oris
+# orisef=lapply(orisl, function(x){
+#   return(x[,-c(4:7)])
+#   
+# })
+# alloris=Reduce(rbind,orisef)
+# 
+# namesel=paste0(alloris[,1],':', alloris[,2], '_', alloris[,3])
+# 
+# alloris_nondup=alloris[!duplicated(namesel),]
+# colnames(alloris)=c('chr', 'start', 'end', 'All-Ori')
+# netwt <- load_features(netwt, alloris, type='features_table',missingv=0, auxfun=mean)
+
+for (f in randwtorisTSS){
+  print(f)
+  oris <- read.table(paste0(datapath,'/May2019_TSSRandom/random_efficiency_mm9/wt_all/',f), header = T, stringsAsFactors = F)
+  
+  netwt <- load_features(netwt, oris[-c(4:6)], type='features_table',missingv=0)
+  
+}
+
+colnames(netwt$features)=c(gsub('mean_efficiency_|_mm9.bed','',filesbed), paste0('r', c(1:20)))
+
+netwtfeat=export(netwt)
+
+netwtchas=chas(netwt)
+
+#Gnetwt=export(netwt, 'igraph')
+
+netwt_bb<-chaser::subset_chromnet(netwt, method="nodes", nodes1=baitsall)
+
+colnames(netwt_bb$features)=c(toupper(gsub('mean_efficiency_|_mm9.bed','',filesbed)), paste0('r', c(1:20)))
+
+netwt_bbfeat=export(netwt_bb)
+
+netwt_bbchas=chas(netwt_bb)
+
+write.table(netwt$nodesdf, 'PCHiC_oriprops.txt', quote=F, sep='\t')
+feats=cbind(rownames(netwt$features),netwt$features, as.numeric(netwt$nodes %in% baitsall))
+colnames(feats)[ncol(feats)]= 'PROM'
+write.table(feats, 'PCHiC_feats2.txt', quote=F, sep='\t', row.names=F)
+
+###make features to show if prom
+
+
+write.table(netwt$edgesdf, 'PCHiC_netnew.txt', quote=F, sep='\t', row.names=F)
+
+write.table(netwt_bb$edgesdf, 'PCHiCPP_netnew.txt', quote=F, sep='\t', row.names=F)
+
+###Network properties
+library(igraph)
+GPCHiC=graph.data.frame(netwt$edgesdf[,c(7,8)], directed=F)
+GPCHiC_PP=graph.data.frame(netwt_bb$edgesdf[,c(7,8)], directed=F)
+
+
+
+colSums(netwt$features>0)
+write.table(colSums(netwt$features>0), 'PCHiCnet_summary.txt', quote=F, sep='\t')
+
+###check inter-chromosomal interactions
+interchrom=which(netwt_bb$edgesdf[,'chrom_from']==netwt_bb$edgesdf[,'chrom_to'])
+```
+
+#####RANDOMIZATIONS 
+```{r}
+
+########rnadomization Distance preserving netwt
+
+
+nrand=50
+drnetwt_bb=chaser::randomize(netwt_bb, nrandom=nrand, preserve.nodes = NULL,dist.match = T)
+
+drnetwt_bbfeat=lapply(drnetwt_bb, export)
+
+
+drnetwt_bbchas=lapply(drnetwt_bb, chas)
+
+###Calculate Zscore:
+
+##flatten out random list
+drnetwt_bbchasdf=as.data.frame(drnetwt_bbchas)
+drnetwt_bbchasmean=rowMeans(drnetwt_bbchasdf)
+drnetwt_bbchassd=apply(drnetwt_bbchasdf, 1, sd)
+
+
+zs=0
+for (d in 1:length(netwt_bbchas)){
+zs[d]=round((netwt_bbchas[d]-drnetwt_bbchasmean[d])/drnetwt_bbchassd[d],2)
+}
+names(zs)=names(netwt_bbchas)
+```
+
+```{r}
+
+##calculate chas of RT
+RTfin=read.table('/home/zeus/Downloads/RT_BAF250a f_f_ESC_Int26763607_mm9.bedgraph',  skip=11, header=F)
+
+colnames(RTfin)=c('chr', 'start', 'end', 'RTfin')
+netwtRT=chaser::make_chromnet(net_forchaser)
+net2KORT=chaser::make_chromnet(net_forchaser2KO)
+netwtRT=load_features(netwtRT, RTfin, type='features_table', auxfun=mean, featnames='RTfin1', missingv=0)
+netwtRT=load_features(netwtRT, RTfin, type='features_table', auxfun=mean, featnames='RTfin2', missingv=0)
+net2KORT=load_features(net2KORT, RTfin, type='features_table', auxfun=mean, featnames='RTfin1', missingv=0)
+
+netwtRTchas=chas(netwtRT)
+
+nrand=50
+```
+
+```{r}
+drnetwtRT=chaser::randomize(netwtRT, nrandom=nrand, preserve.nodes = NULL,dist.match = T)
+
+#drnetwtRTfeat=lapply(netwtRT, export)
+
+drnetwtRTfeat=list()
+for (i in 1:length(drnetwtRT)){
+drnetwtRTfeat[[i]]=export(drnetwtRT[[i]])
+}
+
+drnetwtRTchas=lapply(drnetwtRT, chas)
+
+zsRT=(netwtRTchas-mean(unlist(drnetwtRTchas)))/sd(unlist(drnetwtRTchas))
+
+
+```
+
+PLOTS
+```{r}
+
+sel=colnames(netwt_bbfeat)[grep('exclusive|responsive|both|r1|r2$|r3|r4|r5|r6|r7|r8|r9|r10',colnames(netwt_bbfeat), invert = T, ignore.case=T)]
+labsel=sel
+labsel[grep('r', labsel)]<-''
+labsel[grep('JAN', labsel)]<-'ALL-ORI'
+
+labsel=gsub('CONSTITUTIVE', 'COMM', labsel)
+
+colssel=cols[labsel]
+colssel[6:length(colssel)]<-'purple'
+
+##nonzeros number of fragments
+nzero=colSums(netwt_bbfeat>0)
+ndrzero=lapply(drnetwt_bbfeat, function(x){
+  return(colSums(x>0))
+})
+  
+
+pdf('PCHiC_OriEfAsPP_cor.pdf')
+
+plot(colMeans(netwt_bbfeat)[sel], netwt_bbchas[sel],  pch=21,bg=colssel, col='black', cex=2, cex.lab=2, xlab='Efficiency averaged over network nodes',     ylab='OriEfAs', ylim=c(-0.1,0.2), xlim=c(0,4.5))
+for (i in 1:nrand){
+  points(jitter(colMeans(drnetwt_bbfeat[[i]])[sel], amount=1/60),drnetwt_bbchas[[i]][sel], col=colssel, pch=1, cex=2, lwd=0.5) 
+}
+#text(colMeans(netwt_bbfeat)[sel], netwt_bbchas[sel], labels=labsel, pos=4, srt=90)
+print(zs[sel[6:15]])
+text(colMeans(netwt_bbfeat)[sel[1:5]], rep(-0.1, 5), labels=round(zs[sel[1:5]],0), pos=3,  col=colssel[1:5])
+text(colMeans(netwt_bbfeat)[sel[6]], rep(-0.1), labels=round(zs[sel][6],0), pos=3,col=colssel[6])
+#text(colMeans(netwt_bbfeat)[sel[16]], rep(-0.1), labels=round(mean(zs[sel[17:25]]),0), pos=3)
+points(colMeans(netwt_bbfeat)[sel], netwt_bbchas[sel],  pch=21,bg=colssel, col='black', cex=1.5)
+abline(h=0)
+dev.off()
+```
+Now try moving only non-zero
+```{r}
+pdf('PCHiC_OriEfAsPP_nonzero.pdf')
+
+sel=colnames(netwt_bbfeat)[grep('exclusive|responsive|both',colnames(netwt_bbfeat), invert = T, ignore.case=T)]
+labsel=sel
+labsel[grep('r', labsel)]<-''
+labsel[grep('JAN', labsel)]<-'ALL-ORI'
+
+labsel=gsub('CONSTITUTIVE', 'COMM', labsel)
+
+colssel=cols[labsel]
+colssel[6:25]<-'yellow'
+
+##nonzeros number of fragments
+nzero=colSums(netwt_bbfeat[,sel]>0)
+ndrzero=lapply(drnetwt_bbfeat, function(x){
+  return(colSums(x[,sel]>0))
+})
+  
+
+
+plot(colSums(netwt_bbfeat)[sel]/nzero, netwt_bbchas[sel],  pch=21,bg=colssel, col='black', cex=1.5, xlab='Average Origin Efficiency',     ylab='OriEfAs', ylim=c(-0.1,0.2),  main='PCHiC PP Only nonzero')
+
+for (i in 1:nrand){
+  
+  points(jitter(colSums(drnetwt_bbfeat[[i]])[sel]/ndrzero[[i]], amount=1/60),drnetwt_bbchas[[i]][sel], col=colssel, pch=1, cex=2, lwd=0.5) 
+}
+text(colSums(netwt_bbfeat)[sel]/nzero, netwt_bbchas[sel], labels=labsel, pos=4, srt=90)
+
+text(colSums(netwt_bbfeat)[sel[1:5]]/nzero[1:5], rep(-0.1, 5), labels=round(zs[sel[1:5]],0), pos=3, srt=90, col=colssel)
+text(colSums(netwt_bbfeat)[sel[6]]/nzero[6], rep(-0.1), labels=round(mean(zs[sel[6:16]]),0), pos=3, srt=90)
+text(colSums(netwt_bbfeat)[sel[16]]/nzero[16], rep(-0.1), labels=round(mean(zs[sel[17:25]]),0), pos=3, srt=90)
+points(colSums(netwt_bbfeat)[sel]/nzero, netwt_bbchas[sel],  pch=21,bg=colssel, col='black', cex=1.5)
+abline(h=0)
+dev.off()
+
+```
+
+
+Load TAD coordinates and map PCHiC fragments to TADs
+```{r Comparison with tads}
+tad=read.table(paste(datapath,paste0('/total.HindIII.combined.domain'), sep='/'))
+rownames(tad)=paste(rep('TAD', nrow(tad)),seq(from=1, to=nrow(tad)), sep='')
+colnames(tad)=c('chr', 'start', 'end')
+
+##subset PCHiC into orinet
+
+PCHiCoris=rownames(netwt$features)[which(netwt$features[,1]>0)]
+
+PCHiCorinet=subset_chromnet(netwt, method="nodes", nodes1=PCHiCoris)
+## use chaser to assign features
+
+orinet=PCHiCorinet
+
+PCHiCorinet_interchrom=which(PCHiCorinet$edgesdf$chrom_from!=PCHiCorinet$edgesdf$chrom_to)
+
+taddf=cbind(tad,rownames(tad))
+
+oribed=with(orinet$nodesdf, GRanges(chrom, IRanges(start, end)))
+oribed$ID=rownames(orinet$nodesdf)
+
+tadbed=with(tad, GRanges(chr, IRanges(start, end)))
+tadbed$ID=rownames(tad)
+tadover=findOverlaps(tadbed,oribed)
+tadmatch_hit <- data.frame(tadbed$ID[queryHits(tadover)],oribed$ID[subjectHits(tadover)] )
+tadfrag=tadmatch_hit[!duplicated(tadmatch_hit),]
+colnames(tadfrag)=c('tad', 'frag')
+#table(table(tadfrag$tad))
+#table(table(tadfrag$frag))
+summary(as.numeric(table(tadfrag$tad)))
+summary(as.numeric(table(tadfrag$frag)))
+tadfragproc=tadfrag[-which(table(tadfrag$frag)>1),]
+
+
+write.table(tadfrag, 'PCHiCOrinet_TADannot.txt', quote=F, sep='\t', row.names=F)
+
+###load efficiency values for frag
+
+#Orief5kb=wtnetefl25[[3]]$features[,'ALL-ORI']
+
+#tadfrag[,1]=as.character(tadfrag[,1])
+
+#tadorief=cbind(tadfrag[,1], tadfrag[,2], Orief5kb[tadfrag$frag], wtnetefl25[[3]]$nodesdf[tadfrag$frag,'start'])
+#colnames(tadorief)=c('tad', 'num', 'allef', 'start')
+
+
+GPCHiC=graph.data.frame(netwt$edgesdf[,-c(1:6)], directed=F)
+
+GPCHiCorinet=graph.data.frame(PCHiCorinet$edgesdf[,-c(1:6)], directed=F)
+
+##INtratad info for cytoscape
+
+
+```
+Now study inter and intra-tad 
+
+```{r associate each int to intra or inter tad}
+
+el=orinet$edgesdf[,c(7,8)]
+rownames(el)=paste(el[,1], el[,2], sep='-')
+#E(Gorinet)$enames=rownames(el)
+###elt list of edges in terms of TADS
+elt=el
+for (t in as.vector(unique(tadfragproc$tad))){
+  #print(t)
+  fr=as.vector(tadfragproc$frag[which(tadfragproc$tad ==t)])
+  elt[which(el[,1] %in% fr),1]=t
+  elt[which(el[,2] %in% fr),2]=t
+}
+
+
+intertads=elt[which(elt[,1]!=elt[,2]),]
+intertad_edges=el[which(elt[,1]!=elt[,2]),]
+
+
+GPCHiC=graph.data.frame(netwt$edgesdf[,-c(1:6)], directed=F)
+
+GPCHiCorinet=graph.data.frame(PCHiCorinet$edgesdf[,-c(1:6)], directed=F)
+
+Gorinet=GPCHiCorinet
+
+E(Gorinet)$enames=rownames(el)
+
+E(Gorinet)$intert=rep(0, length(E(Gorinet)))
+E(Gorinet)$intert[which(E(Gorinet)$enames %in% rownames(intertads))]=1
+
+intere=E(Gorinet)$enames[which(E(Gorinet)$enames %in% rownames(intertads))]
+interchrom=E(Gorinet)$enames[which(is.na(E(Gorinet)$dist))]
+
+
+
+###nodes involved in intertads
+intertadnodes=unique(c(intertad_edges[,1], intertad_edges[,2]))
+
+
+#boxplot(Orief5kb[intertadnodes], Orief5kb[intratadnodes], outline=F)
+
+
+```
+
+```{r}
+#Distance analysis
+distne<-function(ne){
+  dist=apply(ne$edgesdf, 1, function(x){
+  res=NA
+  #print(x)
+  #print(x["start_from"])
+  if(x["chrom_from"] == x["chrom_to"]){
+  res= abs(as.numeric(x["start_from"])-as.numeric(x["start_to"]))
+  }
+  return(res)
+  })
+  print(summary(dist))
+  plot(density(log10(dist), na.rm=T), xlab='log10 distance', main=deparse(substitute(ne)))
+  return(dist)
+  }
+dist_PCHiC=distne(orinet)
+```
+
+
+Process data on interaction distance
+```{r}
+#Gorinet=GPCHiCorinet
+
+E(Gorinet)$dist=abs(orinet$edgesdf$start_to-orinet$edgesdf$start_from)
+
+distori=abs(as.numeric(E(Gorinet)$dist))
+distintertad=abs(as.numeric(E(Gorinet)$dist)[which(E(Gorinet)$enames %in% intere)])
+distintratad=abs(as.numeric(E(Gorinet)$dist)[-which(E(Gorinet)$enames %in% intere)])
+
+
+#distintertadori=abs(as.numeric(E(Gorinet)$dist)[which(E(Gorinet)$enames %in% intere)])
+#names(distintertadori)=E(Gorinet)$enames[which(E(Gorinet)$enames %in% intere)]
+#distintratadori=abs(as.numeric(E(Gorinet)$dist)[-which(E(Gorinet)$enames %in% intere)])
+#names(distintratadori)=E(Gorinet)$enames[-which(E(Gorinet)$enames %in% intere)]
+
+```
+
+Plots about distance distributions
+```{r}
+pdf('DistPCHiCOrinet.pdf')
+plot(density(log10(distintertad)), col='darkgreen',lwd=3,  xlab='Distance spanned (log10 bases)',  ylim=c(0,1),xlim=c(2.5,9), cex=1.5, cex.lab=1.5, cex.axis=1.5, main='')
+points(density(log10(distintratad)), type='l',lwd=3, col='cyan')
+points(density(log10(distori)), type='l',lwd=3, col='black')
+legend(2.5,1 ,lty=1, lwd=3,col=c('black', 'cyan', 'darkgreen'), legend=c('All', 'Intra-TAD', 'Inter-TAD'), bty="n", cex=1.5)
+abline(h=0)
+dev.off()
+
+
+
+```
+
+```{r}
+orinetRT=load_features(orinet, RTfin, type='features_table', auxfun=mean, featnames='RTfin', missingv=0)
+
+orinetRTchas=chas(orinetRT)
+
+nrand=50
+drorinetwtRT=chaser::randomize(netwtRT, nrandom=nrand, preserve.nodes = NULL,dist.match = T)
+
+drorinetwtRTfeat=lapply(drorinetwtRT, export)
+drorinetwtRTchas=lapply(drorinetwtRT, chas)
+
+zsoriRT=(orinetRTchas-mean(unlist(drorinetwtRTchas)))/sd(unlist(drorinetwtRTchas))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

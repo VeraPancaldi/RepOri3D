@@ -1,0 +1,1109 @@
+##Code for VOCHiC
+
+# library(devtools)
+# devtools::install_bitbucket("eraineri/chaser", build_opts=c(), force=T)
+
+```{r}
+library(chaser)
+library(GenomicRanges)
+
+##Set datapath
+datapath='/media/vera/Verbatim HDD/RepOriKarolina2021/RepOriData' 
+
+
+source(paste0(datapath,'/coloursdef.R'))
+#load(paste0(datapath,'/chaser_reproducing_ori_paper.RData'))
+```
+
+read BonevORInet
+WT
+```{r}
+
+################# WT
+wtscores=get(load(file=paste0(datapath,'/cav/wt_scores_25kb.df')))
+colnames(wtscores)[c(1:3)]=c('chr', 'start', 'end' )
+sel=(which(wtscores$maxScore>35))
+wtscoressel=wtscores[sel,]
+
+wtnet=make_chromnet(wtscoressel[,c(1:6)])
+path=paste0(datapath,'/cav/')
+orifiles=list.files(paste0(datapath, '/cav/'))
+
+wtorinets=as.list(paste0(path,orifiles[grep('^wt_scores', orifiles)]))
+names(wtorinets)=orifiles[grep('^wt_scores', orifiles)]
+```
+
+
+Make VOCHiC net WT
+```{r}
+###WT scores>0
+wtorinetsprocl=lapply(wtorinets, function(x){
+  x=get(load(x))
+  print(head(x))
+    sel=which(x$maxScore>0)
+  return(wtscores[sel,1:6])
+})
+
+
+```
+### WT scores>25
+
+```{r}
+
+wtorinetsprocl25=lapply(wtorinets, function(x){
+  x=get(load(x))
+ # print(head(x))
+    sel=which(x$maxScore>25)
+  return(x[sel,1:6])
+})
+
+win=c(10000, 25000, 5000)
+
+wtorinetsprocl25ext=wtorinetsprocl25
+for (w in c(1:3)){
+wtorinetsprocl25ext[[w]]$start1=sapply(wtorinetsprocl25ext[[w]]$start1, function(x){return(max((x-win[w]),0))})
+wtorinetsprocl25ext[[w]]$start2=sapply(wtorinetsprocl25ext[[w]]$start2, function(x){return(max((x-win[w]),0))})
+wtorinetsprocl25ext[[w]]$end1=sapply(wtorinetsprocl25ext[[w]]$end1, function(x){return((x+win[w]))})
+wtorinetsprocl25ext[[w]]$end2=sapply(wtorinetsprocl25ext[[w]]$end2, function(x){return((x+win[w]))})
+
+}
+
+wtnetsl25=lapply(wtorinetsprocl25ext, make_chromnet)
+
+```
+
+
+```{r}
+wtorinetsprocscorel=lapply(wtorinets, function(x){
+  x=get(load(x))
+  print(head(x))
+    sel=which(x$maxScore>0)
+  return(x$maxScore[sel])
+})
+
+
+wtorinetsprocl=lapply(wtorinets, function(x){
+  x=get(load(x))
+ # print(head(x))
+    sel=which(x$maxScore>0)
+  return(x[sel,1:6])
+})
+
+win=c(10000, 25000, 5000)
+
+wtorinetsproclext=wtorinetsprocl
+for (w in c(1:3)){
+wtorinetsproclext[[w]]$start1=sapply(wtorinetsproclext[[w]]$start1, function(x){return(max((x-win[w]),0))})
+wtorinetsproclext[[w]]$start2=sapply(wtorinetsproclext[[w]]$start2, function(x){return(max((x-win[w]),0))})
+wtorinetsproclext[[w]]$end1=sapply(wtorinetsproclext[[w]]$end1, function(x){return((x+win[w]))})
+wtorinetsproclext[[w]]$end2=sapply(wtorinetsproclext[[w]]$end2, function(x){return((x+win[w]))})
+
+}
+
+wtnetsl=lapply(wtorinetsproclext, make_chromnet)
+
+#write.table(cbind(paste0(wtnetsl[[3]]$edgesdf[,7],' (interacts with) ' ,wtnetsl[[3]]$edgesdf[,8]) ,wtorinetsprocscorel[[3]]), '5kbfull_wtscores.txt', quote=F, sep='\t', col.names=F)
+```
+
+Read new ori efficiencies centred on original ori centers
+
+```{r}
+wtnetsl25origef=wtnetsl25
+
+
+##For HiC OriNet need oris in mm10
+pathf=paste0(datapath,'/OriHiCeffNov2020/2020_11_30_efficiency_windows_classic_oris/mm10/')
+files=list.files(pathf)
+
+filesbed=files[grep('.bed', files)]
+
+
+
+orisC=list()
+for (f in filesbed){
+oriname=sub('.bed|mean_efficiencies_', '', f)
+orisC[[oriname]] <- read.table(paste(pathf,f, sep='/'), header = T, stringsAsFactors = F)
+colnames(orisC[[oriname]])[c(4,5,6,7)]=paste(oriname, colnames(orisC[[oriname]][c(4,5,6,7)]), sep='_')
+}
+
+##Now create combined sets:
+orisCnames=lapply(orisC, function(x){
+  return(paste0(x[,1],':', x[,2], '-', x[,3]))
+
+})
+
+```
+Add feature at eachresol.
+
+```{r}
+wtnetefl25=wtnetsl25
+
+orisCsel=orisC[grep('10kb', names(orisC))]
+for (s in names(orisCsel)){
+  print(s)
+wtnetefl25[[ "wt_scores_10kb.df"]]=load_features(wtnetefl25[[ "wt_scores_10kb.df"]],orisCsel[[s]][,-c(4:6)],type='features_table',auxfun=mean,featname=gsub('10kb_mm10.bed_norm_background_corrected',s), missingv=0)
+}
+orisCsel=orisC[grep('25kb', names(orisC))]
+for (s in names(orisCsel)){
+wtnetefl25[[ "wt_scores_25kb.df"]]=load_features(wtnetefl25[[ "wt_scores_25kb.df"]],orisCsel[[s]][,-c(4:6)],type='features_table',auxfun=mean,featname=gsub('25kb_mm10.bed_norm_background_corrected',s), missingv=0)
+}
+
+orisCsel=orisC[grep('_5kb', names(orisC))]
+for (s in names(orisCsel)){
+wtnetefl25[[ "wt_scores_5kb.df"]]=load_features(wtnetefl25[[ "wt_scores_5kb.df"]],orisCsel[[s]][,-c(4:6)],type='features_table',auxfun=mean,featname=gsub('5kb_mm10.bed_norm_background_corrected',s), missingv=0)
+}
+orisef=lapply(orisCsel, function(x){
+    x=x[,-c(4:6)]
+    colnames(x)[4]='ef'
+  return(x)
+  
+})
+alloris=Reduce(rbind,orisef)
+colnames(alloris)=c('chr', 'start', 'end', 'All-Ori')
+wtnetefl25[[ "wt_scores_5kb.df"]] <- load_features(wtnetefl25[[ "wt_scores_5kb.df"]], alloris, type='features_table',missingv=0, auxfun=mean)
+wtnetefl25[[ "wt_scores_25kb.df"]] <- load_features(wtnetefl25[[ "wt_scores_25kb.df"]], alloris, type='features_table',missingv=0, auxfun=mean)
+wtnetefl25[[ "wt_scores_10kb.df"]] <- load_features(wtnetefl25[[ "wt_scores_10kb.df"]], alloris, type='features_table',missingv=0, auxfun=mean)
+
+
+
+randwtmm10oris=list.files(paste0(datapath,'/RandOriTSSExp/mm10/random_efficiency_mm10/wt_all'))
+
+
+for (f in randwtmm10oris){
+  print(f)
+  oris <- read.table(paste0(datapath,'/RandOriTSSExp/mm10/random_efficiency_mm10/wt_all/',f), header = T, stringsAsFactors = F)
+  
+
+
+  wtnetefl25[[ "wt_scores_5kb.df"]]<- load_features(wtnetefl25[[ "wt_scores_5kb.df"]], oris[-c(4:6)], type='features_table',missingv=0)
+  wtnetefl25[[ "wt_scores_10kb.df"]]<- load_features(wtnetefl25[[ "wt_scores_10kb.df"]], oris[-c(4:6)], type='features_table',missingv=0)
+  wtnetefl25[[ "wt_scores_25kb.df"]]<- load_features(wtnetefl25[[ "wt_scores_25kb.df"]], oris[-c(4:6)], type='features_table',missingv=0)
+}
+
+colnames(wtnetefl25[[ "wt_scores_25kb.df"]]$features)=c(gsub('mean_efficiency_|_mm10.bed','',names(orisCsel)),'ALL-ORI', paste0('r', c(1:20)))
+
+colnames(wtnetefl25[[ "wt_scores_5kb.df"]]$features)=c(gsub('mean_efficiency_|_mm9.bed','',names(orisCsel)),'ALL-ORI', paste0('r', c(1:20)))
+
+colnames(wtnetefl25[[ "wt_scores_10kb.df"]]$features)=c(gsub('mean_efficiency_|_mm9.bed','',names(orisCsel)),'ALL-ORI', paste0('r', c(1:20)))
+
+#wtorinodes=which(wtnetefl25[[2]]$features>0)
+
+wtchasl25=lapply(wtnetefl25, chas)
+wtfeatl25=lapply(wtnetefl25, export)
+
+```
+
+```{r}
+##randomization
+nrand=50
+#wtC25_5kb_randlnew29july=randomize(wtnetefl25[[3]],nrandom=nrand, preserve.nodes = NULL, dist.match=T)
+#save(wtC25_5kb_randlnew29july, file=paste0('wtC25_5kb_randl',nrand,'_dataset29july.Rdata'))
+load(paste0('/media/data/home/vera/RepOri/RepOriCode/RepOri3D/wtC25_5kb_randlnew50_dataset.Rdata'))
+```
+
+```{r}
+
+wtC25_5kb_randlchas=lapply(wtC25_5kb_randlnew, chas)
+wtC25_5kb_randlfeat=lapply(wtC25_5kb_randlnew, export)
+
+randchas_WT=lapply(wtC25_5kb_randlchas, function(x){
+  return(x['wt_5kb_mm10'])
+})
+```
+Plot function
+
+
+
+```{r}
+plotchas<-function(feat, chas, randfeat,randchas, xmin, xmax, ymin, ymax, title, labon, exclude, valuef){
+ sel=grep(exclude, names(chas), invert=T)
+  print(names(chas)[sel])
+  
+  drdf=as.data.frame(randchas)
+ # print(head(randchas))
+  drmean=rowMeans(drdf)
+  drsd=apply(drdf, 1, sd)
+
+  zs=0
+  for (d in 1:length(chas)){
+  #  print(chas[d])
+   # print(drmean[d])
+    zs[d]=round((chas[d]-drmean[d])/drsd[d],2)
+    #print(zs[d])
+  }
+  names(zs)=names(chas)
+  
+  labels=names(chas)
+  labsel=gsub('_5KB_MM10','',toupper(labels))
+  labsel[grep('^R', labsel)]<-''
+  labsel=gsub('CONSTITUTIVE', 'COMM', labsel)
+
+  colssel=cols[labsel]
+  colssel[8:length(colssel)]<-'purple'
+  
+if(labon=='OFF'){
+  labs=rep('', ncol(feat))
+}  
+
+if(missing(xmin)) {
+    xmin=min(unlist(lapply(randfeat, colMeans)))
+ }
+ if(missing(xmax)){
+    xmax=max(unlist(lapply(randfeat, colMeans)))
+ }  
+  if(missing(ymin)) {
+    ymin=min(unlist(randchas))
+ }
+ if(missing(ymax)){
+    ymax=max(unlist(randchas))
+ }  
+   if(missing(ymax)){
+    title='ChAs Plot'
+   }  
+##define abundance as mean origin eff divided by number of origins (excluding 0)
+#ab=colSums(feat)/(colSums(feat>0)*valuef)
+ab=colSums(feat)/nrow(feat)
+
+ par(oma=c(1,1,1,1))
+ plot( ab[sel],chas[sel], pch=21, cex=1.5, xlab='Efficiency averaged across network nodes', ylab='OriEfAs', cex.axis=1.5, cex.lab=1.5, xlim=c(xmin, xmax), ylim=c(ymin, ymax), bg=colssel[sel], col='black', main=title)
+# text(  ab[sel],chas[sel],labels=labsel[sel], pos=4,   srt=90, cex=1.5)
+ for (i in 1:length(randchas)){
+ 
+  #abrand=colSums(randfeat[[i]])/(colSums(randfeat[[i]]>0)*valuef)
+  abrand=colSums(randfeat[[i]])/nrow(randfeat[[i]])
+ # print(summary(abrand[sel]))
+  points( jitter(abrand[sel], amount=1/60),randchas[[i]][sel], pch=1, col=colssel[sel], cex=3, lwd=0.5)
+  }
+ text(  abrand[sel],randchas[[i]][sel],chas[sel],labels='', pos=4,   srt=90)
+##add Zscores
+ #print('nameszs')
+ #print(zs)
+text(ab[sel][1:5], rep(-0.1, 5), labels=round(zs[sel][1:5],0), pos=3,  col=colssel[sel][1:5])
+text(ab[sel][6], rep(-0.1), labels=round(zs[sel][5],0), pos=3,  col='black')
+#text(ab[sel][16], rep(-0.1), labels=round(mean(zs[sel][17:25]),0), pos=4,  col='black')
+ points( ab[sel],chas[sel], pch=21, cex=1.5)
+
+abline(h=0)
+#print(summary(ab[sel]))
+#print(summary(chas[sel]))
+
+}
+###end of function
+
+#pdf('VOCHiC_OriEfAs_cor.pdf')
+plotchas(wtfeatl25[[3]], wtchasl25[[3]], wtC25_5kb_randlfeat,wtC25_5kb_randlchas ,xmin=0.25, xmax=2.1, ymin=-0.1, ymax=0.2, labon='ON', title='VOCHiC 5kb', exclude='allOris|exclusive|ALL-ORI|r1|r2$|r3|r4|r5|r6|r7|r8|r9|r10', 1)
+#dev.off()
+```
+
+```{r}
+oritype25_5=rep(0, nrow(wtfeatl25[[3]]))
+names(oritype25_5)=rownames(wtfeatl25[[3]])
+oritype25_5[which(wtfeatl25[[3]][,'wt_5kb_mm10']>0)]='WT'
+oritype25_5[which(wtfeatl25[[3]][,'aph_5kb_mm10']>0)]='APH'
+oritype25_5[which(wtfeatl25[[3]][,'cdc6_5kb_mm10']>0)]='CDC6'
+oritype25_5[which(wtfeatl25[[3]][,'constitutive_5kb_mm10']>0)]='COMM'
+
+write.table(cbind(names(oritype25_5),oritype25_5), paste0(datapath,'/OriType25_5.txt'), quote=F, sep='\t', row.names=F)
+###print wtef 
+
+write.table(cbind(names(oritype25_5),wtfeatl25[[3]][,'wt_5kb_mm10']), paste0(datapath,'/WTef_25_5.txt'), quote=F, sep='\t', row.names=F)
+
+```
+
+```{r}
+###distribution of efficiencies 
+boxplot(wtfeatl25[[3]][,c(1:5)]/colSums(wtfeatl25[[3]][,c(1:5)]>0), las=2, outline=F, names=gsub('_5kb_mm10', '', colnames(wtfeatl25[[3]][,c(1:5)])))
+
+###distribution of efficiencies 
+boxplot(wtfeatl25[[3]][,c(1:5)]/colSums(wtfeatl25[[3]][,c(1:5)]>0), las=2, outline=F, names=gsub('_5kb_mm10', '', colnames(wtfeatl25[[3]][,c(1:5)])))
+
+
+```
+
+```{r}
+#Distance analysis
+distne<-function(ne){
+  dist=apply(ne$edgesdf, 1, function(x){
+  res=NA
+  #print(x)
+  #print(x["start_from"])
+  if(x["chrom_from"] == x["chrom_to"]){
+  res= abs(as.numeric(x["start_from"])-as.numeric(x["start_to"]))
+  }
+  return(res)
+  })
+  print(summary(dist))
+  plot(density(log10(dist), na.rm=T), xlab='log10 distance', main=deparse(substitute(ne)))
+  return(dist)
+  }
+dist_VOCHiC=distne(wtnetsl[[3]])
+
+```
+
+
+```{r}
+
+#Consider overlap with promoters
+promsbed=read.table(paste0(datapath,'/Active_Promoter_mm10.bed.txt'), sep='\t')
+colnames(promsbed)=c('chr', 'start', 'end')
+bedproms=with(promsbed,  GRanges(chr, IRanges(start, end)))
+bedproms$ID=paste0('p','_',promsbed[,1], ':',promsbed[,2],'-', promsbed[,3])
+
+
+tssbed=read.table(paste0(datapath,'/TSS_ranges_mm10.bed.txt'), sep='\t')
+colnames(tssbed)[1:3]=c('chr', 'start', 'end')
+bedtss=with(tssbed,  GRanges(chr, IRanges(start, end)))
+bedtss$ID=paste0('t','_',tssbed[,1], ':',tssbed[,2],'-', tssbed[,3])
+
+```
+
+
+ 
+```{r}
+###match between HiCori and promsbed
+
+promstatsl=lapply(wtnetefl25, function(x){
+
+ bedHiCwtori=with(x$nodesdf[,c(1:3)], GRanges(chrom, IRanges(start, end)))
+ bedHiCwtori$ID=paste0(x$nodesdf[,1], ':', x$nodesdf[,2], '-', x$nodesdf[,3])
+ names(bedHiCwtori)=bedHiCwtori$ID
+
+over=findOverlaps(bedHiCwtori,bedproms)
+match_hitwtproms <- data.frame(bedHiCwtori$ID[queryHits(over)],bedproms$ID[subjectHits(over)])
+
+HiCoriP=unique(as.vector(match_hitwtproms[,1]))
+HiCoriNONP=setdiff(x$nodes, HiCoriP)
+
+print(paste('P ',length(HiCoriP), ' nonP ',length(HiCoriNONP)))
+print('P')
+wtnetefl25_P=subset_chromnet(x, method='nodes', nodes1=HiCoriP)
+print('NonP')
+wtnetefl25_nonP=subset_chromnet(x, method='nodes', nodes1=HiCoriNONP)
+
+#print(head(HiCoriP))
+print('PO')
+wtnetefl25_PO <- chaser::subset_chromnet(x, method="nodes", nodes1=HiCoriP, nodes2=HiCoriNONP)
+
+###match between HiCori and bedtss
+over=findOverlaps(bedHiCwtori,bedtss)
+match_hitwttss <- data.frame(bedHiCwtori$ID[queryHits(over)],bedtss$ID[subjectHits(over)])
+
+HiCoriTSS=unique(as.vector(match_hitwttss[,1]))
+HiCoriNONTSS=setdiff(x$nodes, HiCoriTSS)
+print('TSS')
+wtnetefl25_TSS=subset_chromnet(x, method='nodes', nodes1=HiCoriTSS)
+print('nonTSS')
+wtnetefl25_nonTSS=subset_chromnet(x, method='nodes', nodes1=HiCoriNONTSS)
+ 
+  return(list('bed'=bedHiCwtori,'TSS'=wtnetefl25_TSS, 'P'=wtnetefl25_P, 'nonTSS'=wtnetefl25_nonTSS, 'nonP'=wtnetefl25_nonP, 'PO'=wtnetefl25_PO))
+})
+```
+Create annotation files
+```{r}
+promannot5= rep(0, length(wtnetefl25[[3]]$nodes))
+names(promannot5)=wtnetefl25[[3]]$nodes
+promannot5[which(names(promannot5) %in% promstatsl[[3]]$P$nodes )]<-'P'
+write.table(promannot5, paste0(datapath,'/promannot5.txt'), quote=F, sep='\t', row.names=T, col.names=F)
+
+features5=wtnetefl25[[3]]$features
+write.table(cbind(rownames(features5),features5),'featuresVOCHiC5.txt', quote=F, sep='\t', row.names=F)
+
+
+
+```
+Extract graphs
+
+```{r}
+library(igraph)
+Gwt25l=lapply(wtnetefl25, function(x){
+  return(graph.data.frame(x$edgesdf[,c(7,8)], directed=F))
+  })
+
+wt25_5_chr1=subset_chromnet(wtnetefl25[[3]], chrom='chr1')
+ 
+ write.table(wt25_5_chr1$edgesdf, paste0(datapath,'/Gwt25_5_chr1.txt'), quote=F, sep='\t')
+
+wt25_5_chr6=subset_chromnet(wtnetefl25[[3]], chrom='chr6')
+ 
+ write.table(wt25_5_chr6$edgesdf, paste0(datapath,'/Gwt25_5_chr6.txt'), quote=F, sep='\t')
+
+wt25_5_chr19=subset_chromnet(wtnetefl25[[3]], chrom='chr19')
+ 
+ write.table(cbind(rownames(wt25_5_chr19$edgesdf),wt25_5_chr19$edgesdf), paste0(datapath,'/Gwt25_5_chr19.txt'), quote=F, sep='\t', row.names=F)
+
+
+Gwt25Pl=lapply(promstatsl, function(x){
+  return(graph.data.frame(x$P$edgesdf[,c(7,8)], directed=F))
+
+})
+ 
+
+Gwt25nonPl=lapply(promstatsl, function(x){
+  return(graph.data.frame(x$nonP$edgesdf[,c(7,8)], directed=F))
+
+})
+Gwt25TSSl=lapply(promstatsl, function(x){
+  return(graph.data.frame(x$TSS$edgesdf[,c(7,8)], directed=F))
+
+})  
+Gwt25nonTSSl=lapply(promstatsl, function(x){
+  return(graph.data.frame(x$nonTSS$edgesdf[,c(7,8)], directed=F))
+
+})
+
+
+glist=list(Gwt25l[[3]], Gwt25Pl[[3]], Gwt25nonPl[[3]], Gwt25TSSl[[3]], Gwt25nonTSSl[[3]])
+
+names(glist)=c('tot', 'P', 'nonP','TSS', 'nonTSS' )
+
+Gncomp=lapply(glist, function(x){
+  return(clusters(x)$no)
+ 
+})
+
+
+Gdense=lapply(glist, function(x){
+  return(graph.density(x))
+})
+
+write.table(promstatsl[[3]][['nonTSS']]$edgesdf, paste0(datapath,'/Gwt25_nonTSS.txt'), quote=F, sep='\t')
+
+
+
+##annotation of nodes
+nodeannot=cbind(wtnetefl25[[3]]$nodes, rep(0, length(wtnetefl25[[3]]$nodes)))
+
+nodeannot[which(nodeannot[,1] %in% promstatsl[[3]][['TSS']]$nodes),2]<-1
+write.table(nodeannot, 'TSSnodes5kb.txt', quote=F, sep='\t')
+
+```
+
+
+```{r}
+
+###Check relationship of degree to origin type
+VOCHiC_5kb=Gwt25l[[3]]
+###check which nodes are APH, WT, CDC6 etc
+
+wtnetefl25[[3]]
+
+
+##check if nonCOMM oris have lower degree
+
+
+NonCOMMoris=rownames(wtnetefl25[[3]]$features)[which(wtnetefl25[[3]]$features[,'constitutive_5kb_mm10']==0)]
+
+COMMoris=rownames(wtnetefl25[[3]]$features)[which(wtnetefl25[[3]]$features[,'constitutive_5kb_mm10']>0)]
+
+pdf('Deg_COMMvsNON.pdf')
+boxplot(degree(Gwt25l[[3]])[COMMoris], degree(Gwt25l[[3]])[NonCOMMoris], names=c('COMM', 'WT specific'), ylab='Degree', cex.axis=1.5, cex.lab=1.5)
+dev.off()
+wilcox.test(degree(Gwt25l[[3]])[COMMoris], degree(Gwt25l[[3]])[NonCOMMoris])
+
+write.table(promstatsl[[3]][['nonTSS']]$edgesdf, paste0(datapath,'/Gwt25_nonTSS.txt'), quote=F, sep='\t')
+
+
+
+##annotation of nodes
+nodeannot=cbind(wtnetefl25[[3]]$nodes, rep(0, length(wtnetefl25[[3]]$nodes)))
+
+nodeannot[which(nodeannot[,1] %in% promstatsl[[3]][['TSS']]$nodes),2]<-1
+write.table(nodeannot, paste0(datapath,'/TSSnodes5kb.txt'), quote=F, sep='\t')
+
+##Network properties
+colSums(wtnetefl25[[3]]$features>0)
+write.table(colSums(wtnetefl25[[3]]$features>0),'VOCHiC5kb_summary.txt', quote=F, sep='\t')
+
+##cliques counting
+#cliques=cliques(Gwt25l[[3]])
+
+
+```
+Correlations degree, efficiency RT
+```{r}
+
+library(gtools)
+##Check relation of degree with efficiency in non-promoter nodes
+effsnonP5=promstatsl[[3]]$nonP$features[,1]
+degnonP5=degree(Gwt25nonPl[[3]])
+boxplot(effsnonP5~degnonP5)
+cor.test(effsnonP5,degnonP5)
+
+quantilesEffsnonP5 <- quantcut( effsnonP5, q=4 )
+  
+#pdf('Effvsdeg_nonP.pdf')
+boxplot(degnonP5~quantilesEffsnonP5, varwidth=T, xlab='Efficiency quartiles', ylab='Degree', cex.axis=1.5, cex.lab=1.5)
+#dev.off()
+cor.test(effsnonP5,degnonP5)
+
+
+
+effs=wtnetefl25[[3]]$features[,1]
+deg=degree(Gwt25l[[3]])
+
+
+
+ quantilesEffs <- quantcut( effs, q=4 )
+#pdf('Effsvsdeg_all.pdf')  
+boxplot(deg~quantilesEffs, varwidth=T, xlab='Efficiency quartiles', ylab='Degree', cex.axis=1.5, cex.lab=1.5)
+#dev.off()
+
+cor.test(effs,deg)
+
+```
+
+```{r}
+
+effsnonP10=promstatsl[[1]]$nonP$features[,1]
+quantilesEffsnonP10 <- quantcut( effsnonP10, q=4 )
+degnonP10=degree(Gwt25nonPl[[1]])
+#pdf('Effsvsdeg_all_10kb.pdf')  
+boxplot(degnonP10~quantilesEffsnonP10,xlab='Efficiency quartiles', ylab='Degree', cex.axis=1.5, cex.lab=1.5)
+#dev.off()
+
+
+cor.test(effsnonP10,degnonP10)
+
+effs10=wtnetefl25[[1]]$features[,1]
+quantilesEffs10 <- quantcut( effs10, q=4 )
+deg10=degree(Gwt25l[[1]])
+#pdf('Effsvsdeg_all_10kb.pdf')  
+boxplot(deg10~quantilesEffs10,xlab='Efficiency quartiles', ylab='Degree', cex.axis=1.5, cex.lab=1.5)
+#dev.off()
+
+
+cor.test(effs10,deg10)
+
+
+
+
+effsnonP25=promstatsl[[2]]$nonP$features[,1]
+quantilesEffsnonP25 <- quantcut( effsnonP25, q=4 )
+degnonP25=degree(Gwt25nonPl[[2]])
+#pdf('Effsvsdeg_all_25kb.pdf')  
+boxplot(degnonP10~quantilesEffsnonP10,xlab='Efficiency quartiles', ylab='Degree', cex.axis=1.5, cex.lab=1.5)
+#dev.off()
+cor.test(effsnonP25,degnonP25)
+
+effs25=wtnetefl25[[2]]$features[,1]
+quantilesEffs25 <- quantcut( effs25, q=4 )
+deg25=degree(Gwt25l[[2]])
+#pdf('Effsvsdeg_all_25kb.pdf')  
+boxplot(deg25~quantilesEffs25,xlab='Efficiency quartiles', ylab='Degree', cex.axis=1.5, cex.lab=1.5, las=2)
+#dev.off()
+
+
+cor.test(effs25,deg25)
+
+```
+
+
+
+
+
+RT data
+
+```{r}
+#Part on Replication Timing
+
+RT=read.table(paste0(datapath,'/Hiratani2010_mousereptiming/RT_BAF250a f_f_ESC_Int52769503_mm10.bedgraph'),sep='\t',  skip=11, header=F)
+
+RTfin=read.table(paste0(datapath, '/RTFeb2021/RT_46C_ESC_Int62150809_mm10.bedgraph'), sep='\t', skip=11, header=F)
+colnames(RTfin)=c('chr', 'start', 'end', 'RTfin')
+netwtRT=load_features(wtnetsl25[[3]], RTfin, type='features_table', auxfun=mean, featnames='RTfin', missingv=0)
+
+wtnetefl25_C5kbRT=load_features(wtnetsl25[[3]], RTfin, type='features_table', auxfun=mean, featnames = 'RT', missingv=0)
+
+
+write.table(cbind(rownames(wtnetefl25_C5kbRT$features), wtnetefl25_C5kbRT$features), paste0(datapath,'/wtC5kb_RT.txt'), quote=F, sep='\t', row.names=F)
+
+
+##rank repT
+RT=wtnetefl25_C5kbRT$features[,1]
+rankRT=(1-rank(RT)/length(RT))
+
+RTdf=wtnetefl25_C5kbRT$nodesdf
+RTdf=data.frame( rankRT)
+
+
+
+wtnetefl25_C5kbRT=load_features(wtnetefl25_C5kbRT,RTdf, type='features_on_nodes')
+
+RTchas=chas(wtnetefl25_C5kbRT)
+
+
+load(paste0(datapath,'/RTFeb2021/wtC25_5kb_randlRT.Rdata'))
+
+#wtC25_5kb_randlRT=randomize(wtnetefl25_C5kbRT,nrandom=nrand, preserve.nodes = NULL, dist.match=T)
+
+drRTfeat=lapply(wtC25_5kb_randlRT, export)
+drRTchas=lapply(wtC25_5kb_randlRT, chas)
+
+###Calculate Zscore:
+
+##flatten out random list
+drRTchasdf=as.data.frame(drRTchas)[1,]
+drRTchasmean=mean(unlist(drRTchasdf))
+drRTchassd=sd(unlist(drRTchasdf))
+
+
+zsRT=round((RTchas-drRTchasmean)/drRTchassd,2)
+
+```
+
+
+```{r}
+###now with RT
+quantilesRT <- quantcut(wtnetefl25_C5kbRT$features[,1] , q=4 )
+
+#pdf('RTvsEff.pdf')
+boxplot(wtnetefl25_C5kbRT$features[,1]~quantilesEffs, xlab='Efficiency quartiles', ylab='RT')
+#dev.off()
+cor.test(wtnetefl25_C5kbRT$features[,1],effs)
+
+
+#pdf('RTvdeg.pdf')
+boxplot( deg~quantilesRT, xlab='RT quartiles', ylab='Degree')
+#dev.off()
+cor.test(wtnetefl25_C5kbRT$features[,1],deg)
+
+```
+
+
+```{r}
+
+  distne<-function(ne){
+  dist=apply(ne$edgesdf, 1, function(x){
+  res=NA
+  #print(x)
+  #print(x["start_from"])
+  if(x["chrom_from"] == x["chrom_to"]){
+  res= abs(as.numeric(x["start_from"])-as.numeric(x["start_to"]))
+  }
+  return(res)
+  })
+  print(summary(dist))
+  plot(density(log10(dist), na.rm=T), xlab='log10 distance', main=deparse(substitute(ne)))
+  return(dist)
+  }
+
+##PCHiC
+dist_VOCHiC5kb=distne(wtnetsl25[[3]])
+
+quantdistVOCHiC5kb=quantcut( dist_VOCHiC5kb, q=10 )
+
+dist_VOCHiC10kb=distne(wtnetsl25[[1]])
+
+plot(density(log10(dist_VPCHiC5kb), na.rm=T), type='line', lwd=3, xlab='Distance in log10(bases)', main='VPCHIC networks 5kb')
+points(density(log10(dist_PCHiC), na.rm=T), col='cyan', type='l', lwd=3)
+
+```
+
+Load TAD coordinates and map VOCHiC fragments to TADs
+```{r Comparison with tads}
+#tadold=read.table(paste(datapath,paste0('/total.HindIII.combined.domain'), sep='/'))
+tadbonev=read.table(paste0(datapath,'/cav/TADdetailsBonev.csv'), sep=',', header=T)
+
+tad=tadbonev
+rownames(tad)=paste(rep('TAD', nrow(tad)),seq(from=1, to=nrow(tad)), sep='')
+colnames(tad)=c('chr', 'start', 'end')
+
+write.table(tad, 'TADbonannot.txt', quote=F, sep='\t')
+
+## use chaser to assign features
+orinet=wtnetsl25[[3]]
+
+taddf=cbind(tad,rownames(tad))
+
+oribed=with(orinet$nodesdf, GRanges(chrom, IRanges(start, end)))
+oribed$ID=rownames(orinet$nodesdf)
+
+tadbed=with(tad, GRanges(chr, IRanges(start, end)))
+tadbed$ID=rownames(tad)
+tadover=findOverlaps(tadbed,oribed)
+tadmatch_hit <- data.frame(tadbed$ID[queryHits(tadover)],oribed$ID[subjectHits(tadover)] )
+tadfrag=tadmatch_hit[!duplicated(tadmatch_hit),]
+colnames(tadfrag)=c('tad', 'frag')
+#table(table(tadfrag$tad))
+#table(table(tadfrag$frag))
+summary(as.numeric(table(tadfrag$tad)))
+summary(as.numeric(table(tadfrag$frag)))
+tadfragproc=tadfrag[-which(table(tadfrag$frag)>1),]
+
+
+write.table(tadfrag,'Orinet_TADbonannot.txt', quote=F, sep='\t', row.names=F)
+
+###load efficiency values for frag
+
+Orief5kb=wtnetefl25[[3]]$features[,'ALL-ORI']
+
+tadfrag[,1]=as.character(tadfrag[,1])
+
+tadorief=cbind(tadfrag[,1], tadfrag[,2], Orief5kb[tadfrag$frag], wtnetefl25[[3]]$nodesdf[tadfrag$frag,'start'])
+colnames(tadorief)=c('tad', 'num', 'allef', 'start')
+
+
+
+
+TAD856=as.vector(unique(tadfragproc[which(tadfragproc[,1]=='TAD856'),2]))
+
+#TAD856orinet=induced.subgraph(Goril[['ALL-ORI']],V(Goril[['ALL-ORI']])[which(V(Goril[['ALL-ORI']])$name %in% TAD856)])
+
+###make orinet Graph
+library(igraph)
+Gorinet=graph.data.frame(wtnetsl25[[3]]$edgesdf[,-c(1:6)], directed=F)
+```
+Identify intra- and inter-TAD edges
+```{r associate each int to intra or inter tad}
+
+el=get.edgelist(Gorinet)
+rownames(el)=paste(el[,1], el[,2], sep='-')
+E(Gorinet)$enames=rownames(el)
+###elt list of edges in terms of TADS
+elt=el
+for (t in as.vector(unique(tadfragproc$tad))){
+  #print(t)
+  fr=as.vector(tadfragproc$frag[which(tadfragproc$tad ==t)])
+  elt[which(el[,1] %in% fr),1]=t
+  elt[which(el[,2] %in% fr),2]=t
+}
+
+
+intertads=elt[which(elt[,1]!=elt[,2]),]
+intertad_edges=el[which(elt[,1]!=elt[,2]),]
+
+###nodes involved in intertads
+intertadnodes=unique(c(intertad_edges[,1], intertad_edges[,2]))
+
+intratadnodes=setdiff(names(Orief5kb), intertadnodes)
+Orief5kb[intertadnodes]
+
+boxplot(Orief5kb[intertadnodes], Orief5kb[intratadnodes], outline=F)
+
+intertadsproc=intertads#[-c(grep('_', intertads[,1]), grep('_', intertads[,2])),]
+
+```
+
+```{r}
+E(Gorinet)$intert=rep(0, length(E(Gorinet)))
+E(Gorinet)$intert[which(E(Gorinet)$enames %in% rownames(intertadsproc))]=1
+
+intere=E(Gorinet)$enames[which(E(Gorinet)$enames %in% rownames(intertadsproc))]
+interchrom=E(Gorinet)$enames[which(is.na(E(Gorinet)$dist))]
+
+```
+Process data on interaction distance
+```{r}
+
+#length(intersect(E(Goril_enames[['WT']])$enames, intere))
+
+E(Gorinet)$dist=abs(orinet$edgesdf$start_to-orinet$edgesdf$start_from)
+
+distori=abs(as.numeric(E(Gorinet)$dist))
+distintertad=abs(as.numeric(E(Gorinet)$dist)[which(E(Gorinet)$enames %in% intere)])
+distintratad=abs(as.numeric(E(Gorinet)$dist)[-which(E(Gorinet)$enames %in% intere)])
+
+
+distintertadori=abs(as.numeric(E(Gorinet)$dist)[which(E(Gorinet)$enames %in% intere)])
+names(distintertadori)=E(Gorinet)$enames[which(E(Gorinet)$enames %in% intere)]
+distintratadori=abs(as.numeric(E(Gorinet)$dist)[-which(E(Gorinet)$enames %in% intere)])
+names(distintratadori)=E(Gorinet)$enames[-which(E(Gorinet)$enames %in% intere)]
+
+
+##Find peaks function to identify peaks in distribution
+find_peaks <- function (x, m){
+    shape <- diff(sign(diff(x, na.pad = FALSE)))
+    pks <- sapply(which(shape < 0), FUN = function(i){
+       z <- i - m + 1
+       z <- ifelse(z > 0, z, 1)
+       w <- i + m + 1
+       w <- ifelse(w < length(x), w, length(x))
+       if(all(x[c(z : i, (i + 2) : w)] <= x[i + 1])) return(i + 1) else return(numeric(0))
+    })
+     pks <- unlist(pks)
+     pks
+}
+peakinter=find_peaks(density(log10(distintertad))$y, 0.1)
+peakintra=find_peaks(density(log10(distintratad))$y, 0.1)
+peakintraori=find_peaks(density(log10(distintratadori))$y, 0.1)
+peakinterori=find_peaks(density(log10(distintertadori))$y, 0.1)
+
+```
+Plots about distance distributions
+```{r}
+#pdf(paste(datapath,'Figures/DistanceDep/Distance_distribution_TAD.pdf', sep='/'))
+plot(density(log10(distintertad[!is.na(distintertad)])),lty=2, col='purple',lwd=2,  xlab='Distance spanned (log10)', main='Distribution of distances spanned in network contacts', ylim=c(0,1))
+points(density(log10(distintratad[!is.na(distintratad)])), lty=2,type='l',lwd=2, col='pink')
+#abline(v=density(log10(distintertadori))$x[peakinter], col='purple')
+#abline(v=density(log10(distintratadori))$x[peakintra], col='pink')
+#abline(v=median(log10(distintertadori)), col='purple')
+#abline(v=median(log10(distintratadori)), col='pink')
+
+print ('intertad peaks')
+density(log10(distintertad))$x[peakinter]
+print ('intratad peaks')
+density(log10(distintratad))$x[peakintra]
+legend('topleft', legend=c('VOCHiC interTAD', 'VOCHiC intraTAD'), lty=c(2,2), col=c('purple', 'pink' ))
+#dev.off() 
+
+#pdf(paste(datapath,'Figures/DistanceDep/Distance_distribution_allcombined.pdf', sep='/'))
+#png('../RepOriCode/Figures/DistanceDep/Distance_distribution_allcombined.png')
+#pdf('DistVOCHiCcor.pdf')
+plot(density(log10(distintertadori[!is.na(distintertadori)])), col='darkgreen',lwd=3,  xlab='Distance spanned (log10 bases)',  ylim=c(0,1), cex=2, cex.lab=2, cex.axis=2, main='')
+points(density(log10(distintratadori[!is.na(distintratadori)])), type='l',lwd=3, col='cyan')
+points(density(log10(distori[!is.na(distori)])), type='l',lwd=3, col='black')
+legend(3,1 ,lty=1, lwd=3,col=c('black', 'cyan', 'darkgreen'), legend=c('All', 'Intra-TAD', 'Inter-TAD'), bty="n", cex=2)
+#dev.off()
+
+```
+
+```{r}
+
+load(paste0(datapath,'/distances.Rdata'))
+plot(density(log10(dist_VPCHiC5kb), na.rm=T), type='line', lwd=3, xlab='Distance in log10(bases)', main='VPCHIC networks 5kb', ylim=c(0,1))
+points(density(log10(dist_PCHiC), na.rm=T), col='cyan', type='l', lwd=3)
+
+points(density(log10(distori), na.rm=T), type='line', col='blue', lwd=3)
+points(density(log10(dist_PCHiCPP), na.rm=T), type='line', col='green', lwd=3)
+points(density(log10(distintratadori), na.rm=T), type='line', col='purple', lwd=3)
+
+legend(3,0.8 ,lty=1, lwd=3,col=c('black', 'cyan', 'blue',  'green', 'purple'), legend=c('VPCHiC 5kb', 'PCHiC', 'VOCHiC', 'PCHiC-PP','VOCHiCintra') , bty="n", cex=1.5)
+
+```
+
+Check that when interactions are interTAD they unite TADs with similar RT (more similar than random interactions)
+```{r}
+#Load RT data
+#load(paste(datapath,'Hiratani_fragrankmed.Rdata', sep='/'))
+###now check if intertads interactions mean different RT
+##calculate difference in RT rank in fragments united in network
+#RTdifints=apply(el,1, function(x){
+#x=unlist(strsplit(x, split='_'))
+#return(fragrankmed[x[1],1]-fragrankmed[x[2],1])
+#})
+
+
+RTvals=wtnetefl25_C5kbRT$features[,'RTfin']
+
+RTdif=apply(wtnetefl25_C5kbRT$edgesdf,1,function(x){
+#  print(x['node_from'])
+  res=abs(RTvals[x['node_from']]-RTvals[x['node_to']])
+       
+ # print(res)
+  return(res)
+} )
+names(RTdif)=paste(wtnetefl25_C5kbRT$edgesdf$node_from, wtnetefl25_C5kbRT$edgesdf$node_to, sep='-')
+
+RTdiffrand=abs(RTvals[sample(1:length(RTdif))]-RTvals[sample(1:length(RTdif))])
+
+##calculate subnetwork of random oris
+
+#RT of random origins
+
+randorisl=list()
+for (f in randwtmm10oris){
+  print(f)
+  randorisl[[f]] <- read.table(paste0(datapath,'/RandOriTSSExp/mm10/random_efficiency_mm10/wt_all/',f), header = T, stringsAsFactors = F)
+}  
+
+###Make fake networks of random oris to map RT values onto random oris  # some bug maybe
+ # for (i in c(1:length(randorisl))){
+ #  print(i)
+ #    x=randorisl[[i]]
+ # m= data.frame(x[sample(1:nrow(x), nrow(x), replace=T),c(1:3)], x[sample(1:nrow(x), nrow(x), replace=T),c(1:3)])
+ # print('m ok')
+ # colnames(m)=c('chrom1', 'start1', 'end1', 'chrom2', 'start2', 'end2')
+ # 
+ # print(head(m))
+ # msel=m[-which(paste0(m[,1], m[,2], m[,3])==paste0(m[,4], m[,5], m[,6])),]
+ #  
+ #  n=make_chromnet(msel)
+ # mRT=load_features(n,RTfin, type='features_table', auxfun=mean, featnames = 'RT', missingv=0)
+ # #return(m)
+ # }
+
+##extract difRT from mRT
+# listedge=cbind(mRT$edgesdf$node_from, mRT$edgesdf$node_to)
+# randoriRTdif=abs(mRT$features[listedge[,1], 'RTfin']-mRT$features[listedge[,2], 'RTfin'])
+
+RT1=
+
+for (i in 1:1000){
+RTdiffrand[i]=abs(sample(RTvals,1)-sample(RTvals,1))
+print(RTdiffrand[i])
+}
+#pdf('RTdif_VOCHiC.pdf')  
+boxplot(RTdif[intere], RTdif[setdiff(names(RTdif), intere)],RTdif,RTdiffrand, outline=F, names=c('Inter-TAD', 'Intra-TAD', 'All inter-origin', 'Random'), ylab='RT difference')
+#dev.off()
+
+wilcox.test(RTdif[intere],RTdif[setdiff(names(RTdif), intere)])
+
+wilcox.test(RTdif[intere],RTdif[setdiff(names(RTdif), intere)])
+
+```
+Plots about RT difference
+```{r}
+boxplot(abs(RTdifints)[intere], abs(RTdifints)[setdiff(names(RTdifints), intere)])
+
+elori=get.edgelist(Gdistori)
+rownames(elori)=paste(elori[,1], elori[,2], sep='-')
+E(Gdistori)$enames=rownames(elori)
+
+
+
+```
+
+```{r}
+
+#pdf(paste(datapath,'Figures/Supp/Supp5D_RTdif_analysis.pdf', sep='/'), width=12, height=12)
+par(oma=c(1,1,1,0))
+par(mar=c(4,6,6,1))
+boxplot(abs(RTdiforints)[setdiff(names(RTdiforints), intere)],abs(RTdiforints)[intere], abs(randdif),varwidth=T, names=c('Intra-TAD', 'Inter-TAD', 'Random node pairs'), ylab='RT Difference between node pairs', cex.lab=3, cex.axis=2.5)
+#dev.off()
+
+```
+
+Make a TAD network  (be careful)
+```{r}
+###Make TAD network
+intertadsproc2=intertadsproc   #[!duplicated(paste(intertadsproc[,1], intertadsproc[,2])),]
+nonerro=grep('chr', paste(intertadsproc2[,1], intertadsproc2[,2]), invert=T)
+
+intertadsproc3=intertadsproc2[nonerro,]
+
+Gtads=graph.data.frame(intertadsproc3, directed=F)
+Gtads=simplify(Gtads, remove.loops=TRUE)
+
+write.table(data.frame(get.edgelist(Gtads)), 'Gtads_weight.txt',quote=F, sep='\t', row.names=F)
+
+intertadsproc_dist=apply(intertadsproc3,1,function(x){
+x=gsub('TAD', '', x)
+return(abs(as.numeric(x[1])-as.numeric(x[2])))
+})
+
+intertadsproc_long=intertadsproc3[which(intertadsproc_dist>1),]
+
+eltads_long=intertadsproc_long
+
+Gtadslong=graph.data.frame(intertadsproc_long, directed=F)
+
+
+etadsnameslong=paste(eltads_long[,1], eltads_long[,2], sep='_')
+
+E(Gtadslong)$name =etadsnameslong
+
+weights=table(etadsnameslong)
+
+E(Gtadslong)$weight=weights[E(Gtadslong)$name]
+
+write.table(data.frame(get.edgelist(Gtadslong), E(Gtadslong)$weight), 'Gtadslong_weight.txt',quote=F, sep='\t', row.names=F)
+```
+
+Calculate TAD efficiencies 
+```{r}
+
+
+intertadsproc4=intertadsproc3[!duplicated(paste(intertadsproc3[,1], intertadsproc3[,2])),]
+
+matfortadnet=matrix(0,ncol=6, nrow=nrow(intertadsproc4))
+for (i in 1:nrow(intertadsproc4)){
+  matfortadnet[i,]=c(as.character(tad[intertadsproc4[i,1],]$chr), as.character(tad[intertadsproc4[i,1],]$start), as.character(tad[intertadsproc4[i,1],]$end), as.character(tad[intertadsproc4[i,2],]$chr), as.character(tad[intertadsproc4[i,2],]$start), as.character(tad[intertadsproc4[i,2],]$end))
+  
+}
+
+matfortadnet=matfortadnet[!duplicated(paste(matfortadnet[,1],matfortadnet[,2] , sep='_')),]
+
+matfortadnet2=data.frame(matfortadnet)
+matfortadnet2[,-c(1,4)]=apply(matfortadnet2[,-c(1,4)], c(1,2), as.numeric)
+
+
+
+colnames(matfortadnet2)=c('chr', 'start', 'end','chr2', 'start2', 'end2')
+
+
+#oritadnet2=oritadnet[grep('chr', paste0(oritadnet[,1], oritadnet[,2]), invert = T),]
+
+oritadnet=make_chromnet(matfortadnet2[complete.cases(matfortadnet2),])
+write.table(oritadnet$edgesdf, 'oritadnet.txt', quote=F, sep='\t', row.names=F)
+
+```
+Load efficiency of single origins on tad network
+```{r}
+
+files=list.files('/media/data/home/vera/RepOriData/mm10OrisOct19/means_mm10/')
+filesbed=files[grep('.bed', files)]
+
+oritadnet=make_chromnet(matfortadnet2[complete.cases(matfortadnet2),])
+# for (f in filesbed){
+#   oris <- read.table(paste0('/media/data/home/vera/RepOriData/mm10OrisOct19/means_mm10/',f, sep=''), header = T, stringsAsFactors = F)
+#   colnames(oris)[1]='chr'
+#   oritadnet <- load_features(oritadnet,oris[,-c(4:6)], type='features_table',missingv=0,featname=gsub('mean_efficiency_','',f), auxfun='mean')
+#    
+# }
+
+orisCsel=orisC[grep('_5kb', names(orisC))]
+for (s in names(orisCsel)){
+oritadnet=load_features(oritadnet,orisCsel[[s]][,-c(4:6)],type='features_table',auxfun=mean,featname=gsub('5kb_mm10.bed_norm_background_corrected',s), missingv=0)
+}
+
+tadannot=tad
+rownames(tadannot)=paste0('TAD',1:nrow(tad))
+write.table(cbind(rownames(tadannot),paste0(tad[,1],':', tad[,2], '-', tad[,3]), as.vector(tadannot[,4])), 'TADfullannot.txt', quote=F, sep='\t', row.names=F)
+
+write.table(cbind(rownames(tadannot),paste0(tad[,1],':', tad[,2], '-', tad[,3]), as.vector(tadannot[.4])), 'TADfullannot.txt', quote=F, sep='\t', row.names=F)
+
+
+write.table(cbind(rownames(oritadnet$features),oritadnet$features), 'Oritadnet_ef.txt', quote=F, sep='\t', row.names=F)
+
+write.table(oritadnet$edgesdf, paste(datapath,'oritadnet.txt', sep='/'), quote=F, sep='\t', row.names=F)
+
+write.table(cbind(rownames(tad),tad[,1],paste0(tad[,1], ':', tad[,2], '-', tad[,3]), rownames(tad)),paste(datapath,'tadNames.txt', sep='/'), quote=F, sep='\t', row.names=F )
+
+colnames(oritadnet$features)=c(gsub('mean_efficiency_|_mm10.bed','',colnames(oritadnet$features)))
+
+
+##perform randomization
+nrand=50
+oritadnetrand=randomize(oritadnet,nrandom=nrand, preserve.nodes = NULL, dist.match=T)
+
+oritadnetrand_chas=lapply(oritadnetrand, chas)
+oritadnetrand_feat=lapply(oritadnetrand, export)
+
+
+oritadchas=chas(oritadnet)
+oritadfeat=export(oritadnet)
+
+oritadzscore=(oritadchas-mean(unlist(oritadnetrand_chas)))/sd(unlist(oritadnetrand_chas))
+
+
+plotchas(oritadfeat, oritadchas, oritadnetrand_feat, oritadnetrand_chas ,xmin=0, xmax=5, ymin=-0.1, ymax=0.5, labon='ON', title='TAD VOCHiC 5kb', exclude='allOris|exclusive|responsive|ALL-ORI|r1$|r2$|r3|r4|r5|r6|r7|r8|r9|r10', 1)
+
+
+#pdf('TADOriEfAs.pdf')
+plot(rep(mean(oritadfeat),length(oritadchas)), unlist(oritadchas), ylim=c(0, 0.3),xlim=c(6,8), xlab='Efficiency averaged across TAD network nodes', ylab='TADOriEfAs', pch=21, col='red', bg='red')
+for (i in 1:length(oritadnetrand)){ 
+points(jitter(rep(mean(oritadfeat)),length(oritadchas), amount=1/40), unlist(oritadnetrand_chas[[i]]))
+}
+abline(h=0)
+
+
+Gnewtad=graph.data.frame(oritadnet$edgesdf[,c(7,8)], directed=F)
+###anotated chromosome of tad
+
+##TAD names by coords
+tadnew=data.frame(paste0(tad$chr,':', tad$start, '-', tad$end), abs(tad$start-tad$end))
+colnames(tadnew)=c('TAD', 'size')
+rownames(tadnew)=tadnew$TAD
+write.table(tadnew, 'TADsizes.txt', quote=F, sep='\t', row.names=F)
+comm=intersect(V(Gnewtad)$name, tadnew$TAD)
+cor.test(degree(Gnewtad)[comm], tadnew[comm,]$size)
+
+##Study TAD level efficiency vs degree
+effsTAD=oritadnet$features
+degtad=degree(Gnewtad)
+quantilesEfftad <- quantcut(effsTAD , q=4 )
+pdf('EffsvsDeg_TAD.pdf')
+boxplot(degtad~quantilesEfftad, outline=F)
+cor.test(effsTAD,degtad)
+#dev.off()
+```

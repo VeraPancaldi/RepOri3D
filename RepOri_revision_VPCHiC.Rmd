@@ -1,0 +1,516 @@
+# library(devtools)
+# devtools::install_bitbucket("eraineri/chaser", build_opts=c(), force=T)
+
+```{r}
+library(chaser)
+library(GenomicRanges)
+
+source('/media/data/home/vera/RepOriData/coloursdef.R')
+datapath='/media/data/home/vera/RepOriData'
+
+#load(paste0(datapath,'/chaser_reproducing_ori_paper.RData'))
+```
+Now use Cavalli net to extract VPCHiC
+```{r}
+
+
+ppfiles=list.files(paste0(datapath,'/cav/'))
+ppfiles=ppfiles[grep('TSS_scores', ppfiles)]
+PPnets=as.list(paste0(datapath, '/cav/',ppfiles))
+names(PPnets)=ppfiles
+
+
+PPnetsprocl25=lapply(PPnets, function(x){
+  x=get(load(x))
+ # print(head(x))
+    sel=which(x$maxScore>35)   ########attention
+  return(x[sel,1:6])
+})
+
+PPnetsl25=PPnetsprocl25
+
+win=c(10000, 25000, 5000) ##########################################attention PROBLEM!
+
+PPnetsprocl25=PPnetsl25
+for (w in c(1:3)){
+PPnetsprocl25[[w]]$start1=sapply(PPnetsl25[[w]]$start1, function(x){return(max((x-win[w]),0))})
+PPnetsprocl25[[w]]$start2=sapply(PPnetsl25[[w]]$start2, function(x){return(max((x-win[w]),0))})
+PPnetsprocl25[[w]]$end1=sapply(PPnetsl25[[w]]$end1, function(x){return((x+win[w]))})
+PPnetsprocl25[[w]]$end2=sapply(PPnetsl25[[w]]$end2, function(x){return((x+win[w]))})
+
+}
+###remove chromosome 18
+
+PPnetsprocl25=lapply(PPnetsprocl25, function(x){
+  return(x[which(x$chrom1!='chr18'),])
+})
+
+PPnetschroml25=lapply(PPnetsprocl25, make_chromnet)
+
+PPnetefl25=PPnetschroml25
+
+
+```
+
+Now load efficiencies calculated for specific TSS regions
+Load TSS effs
+```{r}
+
+pathftss=paste0(datapath,'/OriCavFeb2021/2021_02_16_extendedwindows_TSS_efficiencies/mm10/')
+
+files=list.files(pathftss)
+
+filesbed=files[grep('.bed', files)]
+orisT=list()
+for (f in filesbed){
+oriname=sub('.bed|efficiencies_', '', f)
+orisT[[oriname]] <- read.table(paste(pathftss,f, sep='/'), header = T, stringsAsFactors = F)
+colnames(orisT[[oriname]])[c(4,5,6,7)]=paste(oriname, colnames(orisT[[oriname]][c(4,5,6,7)]), sep='_')
+}
+
+
+###start with 5kb ints
+PPnetefl25=PPnetschroml25
+
+net=PPnetefl25[['TSS_scores_5kb.df']]
+res='5kb'
+
+names(orisT)=gsub('mean_efficiency_', '', names(orisT))
+
+for (o in names(orisT)[3]){ ## choose 5kb
+net=load_features(net,orisT[[o]][,-c(4:6)],type='features_table',auxfun=mean, missingv=0, featname='')
+}
+colnames(net$features)=gsub('mean_efficiency_|_norm_background_corrected', '', colnames(net$features))
+
+oribin=apply(net$features, c(1,2), function(x){
+return(as.numeric(x>0))
+})
+
+colnames(oribin)=paste('bin',colnames(oribin))
+
+
+
+net=load_features(net, oribin, type='features_on_nodes', missingv=0)
+
+netbinchas=chas(net)
+netbinfeat=export(net)
+
+#rnet=chaser::randomize(net, nrandom=4, preserve.nodes = NULL,dist.match = T)
+
+#save(rnet, file='/home/vera/dbpersonal/rnetefl25_25kb.Rdata')
+
+#load(file='/home/vera/dbpersonal/rnetefl25_5kb.Rdata')
+rnetfeat=lapply(rnet, export)
+
+rnetchas=lapply(rnet, chas)
+
+plot(colMeans(rnetfeat[[1]]),rnetchas[[1]], xlab='Mean efficiency at TSS  Bonev VPCHiC',     ylab='OriEfAs Bonev VPCHiC 5kb ', ylim=c(0,0.3))
+for (i in 2:length(rnetchas)){
+  points(colMeans(rnetfeat[[i]]),rnetchas[[i]])
+}
+points(colMeans(netbinfeat), netbinchas,  pch=20,col='red')
+text(colMeans(netbinfeat), 0.1, labels=names(rnetchas[[1]]), pos=4, srt=90, cex=0.6)
+
+abline(h=0)
+```
+
+Load original Ori bed files in mm10
+```{r}
+##For HiC OriNet need oris in mm10
+files=list.files(paste0(datapath,'/mm10OrisOct19/means_mm10/'))
+
+Pnet=PPnetefl25[['TSS_scores_5kb.df']]
+
+
+filesbed=files[grep('.bed', files)]
+oris=list()
+for (f in filesbed){
+oriname=sub('.bed', '', f)
+oris[[oriname]] <- read.table(paste(datapath,'/mm10OrisOct19/means_mm10/',f, sep=''), header = T, stringsAsFactors = F)
+colnames(oris[[oriname]])[c(4,5,6,7)]=paste(oriname, colnames(oris[[oriname]][c(4,5,6,7)]), sep='_')
+}
+
+orinames=lapply(oris, function(x){
+  return(paste(x[,1], x[,2], x[,3], sep='_'))
+  
+})
+###random
+randwtmm10oris=list.files(paste0(datapath,'/mm10RandomTSSDistExp/random_efficiency_mm10/wt_all/'))
+
+
+
+```
+
+```{r}
+orisl=list()
+for (f in filesbed){
+  oris <- read.table(paste0(datapath,'/mm10OrisOct19/means_mm10/',f, sep=''), header = T, stringsAsFactors = F)
+oris=oris[!duplicated(paste(oris[,1], oris[,2], oris[,3])),]
+ 
+    orisl[[f]]=oris
+  
+  Pnet <- load_features(Pnet, oris[-c(4:6)], type='features_table',missingv=0,featname=gsub('mean_efficiency','',f))
+   
+}
+
+##calculate all oris
+orisef=lapply(orisl, function(x){
+  return(x[,-c(4:6)])
+  
+})
+alloris=Reduce(rbind,orisef[c(2, 6, 12)])
+colnames(alloris)=c('chr', 'start', 'end', 'All-Ori')
+Pnet <- load_features(Pnet, alloris, type='features_table',missingv=0, auxfun=mean)
+
+for (f in randwtmm10oris){
+  print(f)
+  oris <- read.table(paste0(datapath,'/mm10RandomTSSDistExp/random_efficiency_mm10/wt_all/',f), header = T, stringsAsFactors = F)
+  
+  Pnet <- load_features(Pnet, oris[-c(4:6)], type='features_table',missingv=0)
+  
+}
+
+colnames(Pnet$features)=c(gsub('mean_efficiency_|_mm10.bed','',filesbed),'ALL-ORI', paste0('r', c(1:20)))
+
+Pnetfeat=export(Pnet)
+
+Pnetchas=chas(Pnet)
+
+Pnetbin=Pnet
+Pnetbin$features=apply(Pnetbin$features>0, c(1,2), as.numeric)
+
+Pnetchr1=subset_chromnet(Pnet, chrom='chr1')
+
+Pnetfeatchr1=export(Pnetchr1)
+Pnetchaschr1=chas(Pnetchr1)
+
+Pnetchr18=subset_chromnet(Pnet, chrom='chr18')
+
+
+```
+
+#####RANDOMIZATIONS VPCHiC
+```{r}
+
+########rnadomization Distance preserving netwt
+
+###currently only chr1
+nrand=50
+#Pnet=subset_chromnet(Pnet, )
+
+#drPnet=chaser::randomize(Pnet, nrandom=nrand, preserve.nodes = NULL,dist.match = T)  ##!!!!!!!!!!!!!!!!!!!!!!!!!
+
+load('/media/data/home/vera/RepOri/RepOriCode/RepOri3D/drPnet_rand50.Rdata')
+
+drPnetfeat=lapply(drPnet, export)
+drPnetchas=lapply(drPnet, chas)
+
+###Calculate Zscore:
+
+##flatten out random list
+drPnetchasdf=as.data.frame(drPnetchas)
+drPnetchasmean=rowMeans(drPnetchasdf)
+drPnetchassd=apply(drPnetchasdf, 1, sd)
+
+
+zsP=0
+for (d in 1:length(Pnetchas)){
+zsP[d]=round((Pnetchas[d]-drPnetchasmean[d])/drPnetchassd[d],2)
+}
+names(zsP)=names(Pnetchas)
+```
+
+
+PLOTS  VPCHiC
+```{r}
+#pdf('/home/vera/dbpersonal/Dropbox_work/RepOriKarolina/RevisionFigures/PCHiC_OriEfAsPP.pdf')
+
+sel=colnames(Pnetfeat)[grep('exclusive|responsive|aph_const|cdc6_const|wt_const|both|r1|r2$|r3|r4|r5|r6|r7|r8|r9|r10',colnames(Pnetfeat), invert = T, ignore.case=T)]
+labsel=sel
+labsel=gsub('_MM10.BED','', toupper(labsel))
+labsel[grep('^R', labsel)]<-''
+labsel=gsub('CONSTITUTIVE', 'COMM', labsel)
+print(sel)
+colssel=cols[labsel]
+colssel[6:length(colssel)]<-'purple'
+
+pdf('VPCHiC_OriEfAs_cor.pdf')
+
+plot(colMeans(Pnetfeat)[sel], Pnetchas[sel],  pch=21,cex=1.5, xlab='Efficiency averaged over network nodes', ylab='OriEfAs', cex.axis=1.5, cex.lab=1.5, ylim=c(-0.1,0.2), bg=colssel, col='black', main='VPCHiC')
+#text(colMeans(Pnetfeat)[sel], Pnetchas[sel], labels=labsel, pos=4, srt=90, cex=1.5)
+
+for (i in 1:nrand){
+  points(jitter(colMeans(drPnetfeat[[i]])[sel], amount=1/60),drPnetchas[[i]][sel],pch=1, col=colssel, cex=2, lwd=0.5) 
+}
+
+text(colMeans(Pnetfeat)[sel[1:5]], rep(-0.1, 5), labels=round(zsP[sel[1:5]],0), pos=3, col=colssel[1:5])
+text(colMeans(Pnetfeat)[sel[6]], rep(-0.1), labels=round(zsP[sel][6],0), pos=3)
+#text(colMeans(Pnetfeat)[sel[16]], rep(-0.1), labels=round(mean(zsP[sel[17:25]]),0), pos=4, srt=90)
+
+points( colMeans(Pnetfeat)[sel], Pnetchas[sel],  pch=21,cex=1.5)
+abline(h=0)
+dev.off()
+
+```
+
+```{r}
+plot( ab[sel],chas[sel], pch=21, cex=1.5, xlab='Average Origin Efficiency', ylab='OriEfAs', cex.axis=1.5, cex.lab=1.5, xlim=c(xmin, xmax), ylim=c(ymin, ymax), bg=colssel[sel], col='black', main=title)
+ text(  ab[sel],chas[sel],labels=labsel[sel], pos=4,   srt=90, cex=1.5)
+ for (i in 1:length(randchas)){
+  #abrand=colSums(randfeat[[i]])/(colSums(randfeat[[i]]>0)*valuef)
+  abrand=colSums(randfeat[[i]])/nrow(randfeat[[i]])
+ # print(summary(abrand[sel]))
+  points( jitter(abrand[sel], amount=1/60),randchas[[i]][sel], pch=1, col=colssel[sel], cex=2, lwd=0.5)
+  }
+ text(  abrand[sel],randchas[[i]][sel],chas[sel],labels='', pos=4,   srt=90)
+##add Zscores
+ print('nameszs')
+ print(names(zs))
+text(ab[sel][1:5], rep(-0.1, 5), labels=round(zs[sel][1:5],0), pos=4, srt=90, col=colssel[sel][1:5])
+text(ab[sel][6], rep(-0.1), labels=round(mean(zs[sel][6:16]),0), pos=4, srt=90, col='black')
+text(ab[sel][16], rep(-0.1), labels=round(mean(zs[sel][17:25]),0), pos=4, srt=90, col='black')
+ points( ab[sel],chas[sel], pch=21, cex=1.5)
+
+
+```
+
+```{r}
+##flatten out random list
+drPnetbinchasdf=as.data.frame(drPnetbinchas)
+drPnetbinchasmean=rowMeans(drPnetbinchasdf)
+drPnetbinchassd=apply(drPnetbinchasdf, 1, sd)
+
+
+zsPbin=0
+for (d in 1:length(Pnetbinchas)){
+zsPbin[d]=round((Pnetbinchas[d]-drPnetbinchasmean[d])/drPnetbinchassd[d],2)
+}
+names(zsPbin)=names(Pnetbinchas)
+
+sel=colnames(Pnetfeat)[grep('exclusive|responsive|aph_const|cdc6_const|wt_const|both',colnames(Pnetfeat), invert = T, ignore.case=T)]
+labsel=sel
+labsel=gsub('_MM10.BED','', toupper(labsel))
+labsel[grep('^R', labsel)]<-''
+labsel=gsub('CONSTITUTIVE', 'COMM', labsel)
+
+colssel=cols[labsel]
+colssel[7:25]<-'yellow'
+
+plot(colSums(drPnetbinfeat[[1]])[sel],drPnetbinchas[[1]][sel], xlab='Number of origins VPCHiC ',     ylab='OriAs VPCHiC ', ylim=c(-0.1,0.2), xlim=c(0,11500)) 
+for (i in 2:nrand){
+  points(colSums(drPnetbinfeat[[i]])[sel],drPnetbinchas[[i]][sel]) 
+}
+points(colSums(Pnetbinfeat)[sel], Pnetbinchas[sel],  pch=20,col=colssel)
+text(colSums(Pnetbinfeat)[sel], Pnetbinchas[sel], labels=labsel, pos=4, srt=90)
+
+text(colSums(Pnetbinfeat)[sel[1:5]], rep(-0.1, 5), labels=zsP[sel[1:5]], pos=4, srt=90)
+text(colSums(Pnetbinfeat)[sel[6]], rep(-0.1), labels=round(mean(zsP[sel[6:16]]),2), pos=4, srt=90)
+text(colSums(Pnetbinfeat)[sel[16]], rep(-0.1), labels=round(mean(zsP[sel[17:25]]),2), pos=4, srt=90)
+
+
+abline(h=0)
+
+
+```
+
+```{r}
+plotchas(Pnetfeat, Pnetchas, drPnetfeat,drPnetchas ,xmin=0, xmax=4.5, ymin=-0.1, ymax=0.2, labon='ON', title='VPCHiC', exclude='EXCL|RESP|APH_CONST|CDC6_CONST|WT_CONST|BOTH', 1)
+
+```
+```{r}
+
+Pnetbiin=Pnet
+
+Pnetbin$features=apply(Pnetbin$features>0, c(1,2), as.numeric)
+
+Pnetbinchas=chas(Pnetbin)
+Pnetbinfeat=export(Pnetbin)
+
+drPnetbin=lapply(drPnet, function(x){
+  x$features=apply(x$features>0, c(1,2), as.numeric)
+
+return(x)  
+})
+                  
+drPnetbinfeat=lapply(drPnetbin, export)
+
+                         
+drPnetbinchas=lapply(drPnetbin, chas)
+
+plotchas(Pnetbinfeat, Pnetbinchas, drPnetbinfeat,drPnetbinchas ,xmin=0, xmax=4.5, ymin=-0.1, ymax=0.2, labon='ON', title='VPCHiC', exclude='EXCL|RESP|APH_CONST|CDC6_CONST|WT_CONST|BOTH', 1)
+
+```
+
+
+```{r}
+##Define distance in VOCHIC nets
+
+  distne<-function(ne){
+  dist=apply(ne$edgesdf, 1, function(x){
+  res=NA
+  #print(x)
+  #print(x["start_from"])
+  if(x["chrom_from"] == x["chrom_to"]){
+  res= abs(as.numeric(x["start_from"])-as.numeric(x["start_to"]))
+  }
+  return(res)
+  })
+  print(summary(dist))
+  plot(density(log10(dist), na.rm=T), xlab='log10 distance', main=deparse(substitute(ne)))
+  return(dist)
+  }
+
+##PCHiC
+dist_PCHiC=distne(netwt)
+
+dist_PCHiCPP=distne(netwt_bb)
+
+##VPCHIC
+dist_VPCHiC5kb=distne(PPnetefl25[[3]])
+dist_VPCHiC25kb=distne(PPnetefl25[[2]])
+dist_VPCHiC10kb=distne(PPnetefl25[[1]])
+
+plot(density(log10(dist_VPCHiC5kb), na.rm=T), type='line', lwd=3, xlab='Distance in log10(bases)', main='VPCHIC networks 5kb', ylim=c(0,1))
+#points(density(log10(dist_PCHiC), na.rm=T), col='cyan', type='l', lwd=3)
+points(density(log10(dist_VPCHiC10kb), na.rm=T), type='line', col='blue', lwd=3)
+points(density(log10(dist_VPCHiC25kb), na.rm=T), type='line', col='purple', lwd=3)
+#points(density(log10(dist_PCHiCPP), na.rm=T), type='line', col='green', lwd=3)
+legend(3,0.8 ,lty=1, lwd=3,col=c('black', 'cyan', 'blue', 'purple', 'green'), legend=c('VPCHiC 5kb', 'PCHiC', 'VPCHiC10kb', 'VPCHiC25kb', 'PCHiC-PP'), bty="n", cex=1.5)
+
+
+save(dist_VPCHiC5kb, dist_PCHiC, dist_PCHiCPP, file=paste0(datapath,'/distances.Rdata'))
+
+```
+
+
+Load TAD coordinates and map VPCHiC fragments to TADs
+```{r Comparison with tads}
+tadbonev=read.table('/media/data/home/vera/RepOriData/cav/TADdetailsBonev.csv', sep=',', header=T)
+
+tad=tadbonev
+rownames(tad)=paste(rep('TAD', nrow(tad)),seq(from=1, to=nrow(tad)), sep='')
+colnames(tad)=c('chr', 'start', 'end', 'compart')
+
+##annotate tad size
+tadsize=tad
+tadsize=cbind(tadsize, abs(tadsize$end-tadsize$start))
+colnames(tadsize)=c('chr', 'start', 'end', 'compart', 'gensize')
+write.table(cbind(rownames(tadsize), tadsize), 'TADsizeannot.txt', quote=F, sep='\t', row.names=F)
+
+##subset PCHiC into orinet
+
+VPCHiCoris=rownames(Pnet$features)[which(Pnet$features[,1]>0)]
+
+VPCHiCorinet=subset_chromnet(Pnet, method="nodes", nodes1=VPCHiCoris)
+## use chaser to assign features
+
+orinet=VPCHiCorinet
+
+
+taddf=cbind(tad,rownames(tad))
+
+oribed=with(orinet$nodesdf, GRanges(chrom, IRanges(start, end)))
+oribed$ID=rownames(orinet$nodesdf)
+
+tadbed=with(tad, GRanges(chr, IRanges(start, end)))
+tadbed$ID=rownames(tad)
+tadover=findOverlaps(tadbed,oribed)
+tadmatch_hit <- data.frame(tadbed$ID[queryHits(tadover)],oribed$ID[subjectHits(tadover)] )
+tadfrag=tadmatch_hit[!duplicated(tadmatch_hit),]
+colnames(tadfrag)=c('tad', 'frag')
+#table(table(tadfrag$tad))
+#table(table(tadfrag$frag))
+```
+
+```{r}
+summary(as.numeric(table(tadfrag$tad)))
+summary(as.numeric(table(tadfrag$frag)))
+tadfragproc=tadfrag[-which(table(tadfrag$frag)>1),]
+
+
+write.table(tadfrag,'Orinet_TADbonannot.txt', quote=F, sep='\t', row.names=F)
+
+
+
+tadfrag[,1]=as.character(tadfrag[,1])
+
+
+
+GVPCHiC=graph.data.frame(Pnet$edgesdf[,-c(1:6)], directed=F)
+
+GVPCHiCorinet=graph.data.frame(VPCHiCorinet$edgesdf[,-c(1:6)], directed=F)
+
+##INtratad info for cytoscape
+
+```
+
+
+Now study inter and intra-tad 
+
+```{r}
+#associate each int to intra or inter tad}
+
+el=orinet$edgesdf[,c(7,8)]
+rownames(el)=paste(el[,1], el[,2], sep='-')
+#E(Gorinet)$enames=rownames(el)
+###elt list of edges in terms of TADS
+elt=el
+for (t in as.vector(unique(tadfragproc$tad))){
+  #print(t)
+  fr=as.vector(tadfragproc$frag[which(tadfragproc$tad ==t)])
+  elt[which(el[,1] %in% fr),1]=t
+  elt[which(el[,2] %in% fr),2]=t
+}
+
+
+intertads=elt[which(elt[,1]!=elt[,2]),]
+intertad_edges=el[which(elt[,1]!=elt[,2]),]
+
+
+#GVPCHiC=graph.data.frame(netwt$edgesdf[,-c(1:6)], directed=F)
+
+GVPCHiCorinet=graph.data.frame(VPCHiCorinet$edgesdf[,-c(1:6)], directed=F)
+
+Gorinet=GVPCHiCorinet
+
+E(Gorinet)$enames=rownames(el)
+
+E(Gorinet)$intert=rep(0, length(E(Gorinet)))
+E(Gorinet)$intert[which(E(Gorinet)$enames %in% rownames(intertads))]=1
+
+intere=E(Gorinet)$enames[which(E(Gorinet)$enames %in% rownames(intertads))]
+interchrom=E(Gorinet)$enames[which(is.na(E(Gorinet)$dist))]
+
+
+```
+
+
+Process data on interaction distance
+```{r}
+
+E(Gorinet)$dist=abs(orinet$edgesdf$start_to-orinet$edgesdf$start_from)
+
+distori=abs(as.numeric(E(Gorinet)$dist))
+distintertad=abs(as.numeric(E(Gorinet)$dist)[which(E(Gorinet)$enames %in% intere)])
+distintratad=abs(as.numeric(E(Gorinet)$dist)[-which(E(Gorinet)$enames %in% intere)])
+
+
+#distintertadori=abs(as.numeric(E(Gorinet)$dist)[which(E(Gorinet)$enames %in% intere)])
+#names(distintertadori)=E(Gorinet)$enames[which(E(Gorinet)$enames %in% intere)]
+#distintratadori=abs(as.numeric(E(Gorinet)$dist)[-which(E(Gorinet)$enames %in% intere)])
+#names(distintratadori)=E(Gorinet)$enames[-which(E(Gorinet)$enames %in% intere)]
+
+```
+
+Plots about distance distributions
+```{r}
+pdf('DistVPCHiC.pdf')
+plot(density(log10(distintertad[!is.na(distintertad)])), col='darkgreen',lwd=3,  xlab='Distance spanned (log10 bases)',  ylim=c(0,1), cex=1.5, cex.lab=1.5, cex.axis=1.5, main='')
+points(density(log10(distintratad[!is.na(distintratad)])), type='l',lwd=3, col='cyan')
+points(density(log10(distori[!is.na(dist)])), type='l',lwd=3, col='black')
+legend(2,1 ,lty=1, lwd=3,col=c('black', 'cyan', 'darkgreen'), legend=c('All', 'Intra-TAD', 'Inter-TAD'), bty="n", cex=1.5)
+dev.off()
+
+
+
+```
